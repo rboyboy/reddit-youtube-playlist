@@ -1,71 +1,110 @@
 import requests
 import json
 import re
+import sys, getopt
 
-subreddit_music = "music"
-subreddit_rock = "rock"
-actual_reddit = subreddit_rock
+DEBUG = False
 
-def get_json_data_from_request(url, custom_headers):
+
+def get_json_data_from_request(subreddit, custom_headers, limit):
+  url = "http://www.reddit.com/r/" + subreddit + ".json?limit=" + `limit`
   r = requests.get(url, headers=custom_headers)
   if r.status_code!=200:
-    print "status_code: " + `r.status_code`
-    exit()
+    print "Error when calling " + url + " : status_code: " + `r.status_code`
+    sys.exit(2)
   else:
     print("Data got from " + url)
     json_music = r.json()
-    with open(actual_reddit + '.json', 'w') as fp:
-      json.dump(json_music, fp)
-    print("JSON data written in file " + actual_reddit + ".json") # DEBUG
+    if DEBUG:
+      with open(subreddit + '.json', 'w') as fp:
+        json.dump(json_music, fp)
+      print("JSON data written in file " + subreddit + ".json") 
   return json_music
 
 
-def get_json_from_file(filename):
-  with open(filename) as json_file:
-    json_data = json.load(json_file)
-  print("Data got from " + filename)
-  return json_data
+#def get_json_from_file(filename):
+#  with open(filename) as json_file:
+#    json_data = json.load(json_file)
+#  print("Data got from " + filename)
+#  return json_data
 
 
-def json_data_to_youtube_list(json_music):
+def json_data_to_youtube_list(json_music, output_filename):
   children = json_music["data"]["children"]
-  output_filename = "playlist_r_" + actual_reddit + ".txt"
   f = open(output_filename, "w")
   for child in children:
     data_child = child["data"]
     if (data_child["domain"]=="youtube.com") |  (data_child["domain"]=="youtu.be"):
-      #f.write(data_child["url"] + "   ===>   " + get_youtube_id(data_child["url"]))
-      f.write(get_youtube_id(data_child["url"]))
-      f.write('\n')
+      url = data_child["url"]
+      #Check that the link is not a playlist
+      m = re.compile("https?://www.youtube.com/playlist.*").match(url)
+      if m is None:
+        if DEBUG:
+          f.write(url + "   ===>   " + get_youtube_id(url))
+        else:
+          try:
+            f.write(get_youtube_id(url))
+          except ValueError as err:
+            print (err.args[0])
+        f.write('\n')
   f.close()
-  print("Youtube id written in file : " + output_filename)
+  print("Youtube ids written in file : " + output_filename)
 
 
 def get_youtube_id(youtube_link):
-  #TODO
-  m = re.compile("https?://www.youtube.com/watch\?v=(.{11,11})").match(youtube_link)
-  res = ""
+  m = re.compile("https?://www.youtube.com/.*v=(.{11,11})").match(youtube_link)
   if m:
-    res = m.group(1)
+    return m.group(1)
+  m = re.compile("https?://youtu.be/(.{11,11})").match(youtube_link)
+  if m:
+    return m.group(1)
   else:
-    m = re.compile("https?://youtu.be/(.{11,11})").match(youtube_link)
-    if m:
-      res = m.group(1)
-    else:
-      print ("Error : can't find youtube video id for link " + youtube_link)
-      exit()
-  return res
+    raise ValueError("Error : can't find youtube video id for link " + youtube_link)
 
 
 
 # MAIN
 
-url = "http://www.reddit.com/r/" + actual_reddit + ".json"
-custom_headers = {'user-agent': 'reddit music player v0.1, by /u/rboyboy'}
-json_music = get_json_data_from_request(url, custom_headers)
+def main(argv):
 
-#filename = actual_reddit + ".json"
-#json_music = get_json_from_file(filename)
+  actual_reddit = "music"
+  limit = 25
 
-json_data_to_youtube_list(json_music)
+  helper="Usage : \"python " + sys.argv[0] + " [-h] [--subreddit ...] [-l ...]\nOptions and arguments :\n-h          : Display helper\n--subreddit : The name of the subreddit (Default : \"music\")\n-l          : Maximum number of posts parsed by the script (default : 25, min 0, max 100)"
+  # Get parameters
+  try:
+    opts, args = getopt.getopt(argv, "hl:", ["subreddit="])
+  except getopt.GetoptError:
+    if DEBUG:
+      print "GetoptError"
+    print helper
+    sys.exit(2)
+  for opt, arg in opts:
+    if opt == '-h':
+      print helper
+      sys.exit()
+    if opt == '--subreddit':
+      actual_reddit = arg
+    if opt == '-l':
+      try:
+        limit=int(arg)
+      except ValueError:
+        print "Invalid parameter for -l : " + arg + " ! We need an integer between 0 and 100"
+        sys.exit(2)
+      if (limit<0) or (limit>100):
+        print "Invalid parameter for -l : " + arg + " ! We need an integer between 0 and 100"
+        sys.exit(2)
 
+
+  custom_headers = {'user-agent': 'reddit music player v0.1, by /u/rboyboy'}
+  json_music = get_json_data_from_request(actual_reddit, custom_headers, limit)
+  
+  #filename = actual_reddit + ".json"
+  #json_music = get_json_from_file(filename)
+  
+  # Write result in file name
+  output_filename = "playlist_" + actual_reddit + ".txt"
+  json_data_to_youtube_list(json_music, output_filename)
+
+if __name__ == "__main__":
+  main(sys.argv[1:])
