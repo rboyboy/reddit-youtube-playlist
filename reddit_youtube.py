@@ -10,45 +10,29 @@ def get_json_data_from_request(subreddit, custom_headers, limit):
   url = "http://www.reddit.com/r/" + subreddit + ".json?limit=" + `limit`
   r = requests.get(url, headers=custom_headers)
   if r.status_code!=200:
-    print "Error when calling " + url + " : status_code: " + `r.status_code`
-    sys.exit(2)
+    raise StandardError("Error when calling " + url + " : status_code: " + `r.status_code`)
   else:
-    print("Data got from " + url)
     json_music = r.json()
     if DEBUG:
+      print("Data got from " + url)
       with open(subreddit + '.json', 'w') as fp:
         json.dump(json_music, fp)
       print("JSON data written in file " + subreddit + ".json") 
   return json_music
 
 
-#def get_json_from_file(filename):
-#  with open(filename) as json_file:
-#    json_data = json.load(json_file)
-#  print("Data got from " + filename)
-#  return json_data
-
-
-def json_data_to_youtube_list(json_music, output_filename):
+def json_data_to_youtube_list(json_music):
   children = json_music["data"]["children"]
-  f = open(output_filename, "w")
+  playlist = []
   for child in children:
     data_child = child["data"]
-    if (data_child["domain"]=="youtube.com") |  (data_child["domain"]=="youtu.be"):
-      url = data_child["url"]
-      #Check that the link is not a playlist
-      m = re.compile("https?://www.youtube.com/playlist.*").match(url)
-      if m is None:
-        if DEBUG:
-          f.write(url + "   ===>   " + get_youtube_id(url))
-        else:
-          try:
-            f.write(get_youtube_id(url))
-          except ValueError as err:
-            print (err.args[0])
-        f.write('\n')
-  f.close()
-  print("Youtube ids written in file : " + output_filename)
+    url = data_child["url"]
+    try:
+      id = get_youtube_id(url)
+      playlist.append({"id":id})
+    except ValueError:
+      pass
+  return playlist
 
 
 def get_youtube_id(youtube_link):
@@ -61,6 +45,12 @@ def get_youtube_id(youtube_link):
   else:
     raise ValueError("Error : can't find youtube video id for link " + youtube_link)
 
+
+def create_youtube_playlist(subreddit, limit):
+  custom_headers = {'user-agent': 'reddit music player v0.1, by /u/rboyboy'}
+  json_music = get_json_data_from_request(subreddit, custom_headers, limit)
+  return json_data_to_youtube_list(json_music)
+ 
 
 
 # MAIN
@@ -95,16 +85,18 @@ def main(argv):
         print "Invalid parameter for -l : " + arg + " ! We need an integer between 0 and 100"
         sys.exit(2)
 
+  playlist={}
+  try:
+    playlist = create_youtube_playlist(actual_reddit, limit);
+  except:
+    raise
 
-  custom_headers = {'user-agent': 'reddit music player v0.1, by /u/rboyboy'}
-  json_music = get_json_data_from_request(actual_reddit, custom_headers, limit)
+  output_filename = "playlist_" + actual_reddit + ".json"
+  with open(output_filename, 'w') as out:
+    json.dump(playlist, out)
   
-  #filename = actual_reddit + ".json"
-  #json_music = get_json_from_file(filename)
-  
-  # Write result in file name
-  output_filename = "playlist_" + actual_reddit + ".txt"
-  json_data_to_youtube_list(json_music, output_filename)
+  if DEBUG:
+    print "Playlist written in " + output_filename
 
 if __name__ == "__main__":
   main(sys.argv[1:])
